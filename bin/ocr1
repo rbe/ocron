@@ -1,0 +1,92 @@
+#!/bin/sh
+
+# Input image directory and name
+doc=$1
+docdir="$(dirname $1)"
+docname="$(basename $1)"
+_docname="$(echo $docname | sed 's#[\s]#_#g')"
+# Identify image type
+pagetype="$(identify -format '%[page]=%m ' $doc)"
+imagetype="$(echo $pagetype | awk '{print $1}' | awk -F'=' '{print $2}')"
+# Identify resolution
+xdpi="$(identify -format '%x' $doc | awk '{print $1}')"
+ydpi="$(identify -format '%y' $doc | awk '{print $1}')"
+targetdpi="300x300"
+# Set working directories
+wd="$(dirname $0)/../work/${_docname}_work/${targetdpi}dpi"
+ocrwd=$wd/ocropus
+
+#
+# Echo with date
+#
+e() {
+    echo "$(date): $*"
+}
+
+e "Start OCR for $imagetype $_docname: dpi=$xdpi x $ydpi"
+
+# Create working directory
+rm -rf $wd
+mkdir -p $wd
+cp $doc $wd
+
+cd $wd
+
+# Start OCR
+e Starting OCR
+###exec > $wd/ocropus.log 2>&1
+
+# Check resolution
+if [ $xdpi -lt 200 -o $ydpi -lt 200 ]
+then
+    e "Bad image quality: resolution is $xdpi x $ydpi dpi"
+fi
+if [ $xdpi -gt 400 -o $ydpi -gt 400 ]
+then
+    e "Very good image quality: resolution is $xdpi x $ydpi dpi"
+fi
+# Convert PDF to PNG
+if [ x"$imagetype" = x"PDF" ]; then
+    e "Converting to PDF to PNG with $targetdpi dpi"
+    convert -density $targetdpi $docname $docname.png
+    e "...done"
+fi
+
+# Check for PNG
+if [ $(ls *.png 2>/dev/null | wc -l) -eq 0 ]
+then
+    e "No PNG found!"
+    exit 1
+fi
+
+cd ..
+
+###export tesslanguage=deu
+e START
+# copies the page images into the book directory
+e "book2pages"
+ocropus book2pages $ocrwd $wd/*.png
+e "...done"
+# perform layout analysis and output text lines in 0000/0000.png etc. 
+e "pages2lines"
+ocropus pages2lines $ocrwd
+e "...done"
+# perform character recognition on all the text lines 
+e "lines2fsts"
+ocropus lines2fsts $ocrwd
+e "...done"
+# apply a language model to the text 
+e "fsts2text"
+ocropus fsts2text $ocrwd
+e "...done"
+# put the result together into a simple HTML output forma
+e "buildhtml"
+ocropus buildhtml $ocrwd > $wd/result.html
+e "...done"
+e STOP
+
+###exec > &1
+###rm $wd/$docname
+e ...done
+
+exit 0
